@@ -42,10 +42,7 @@
   .game-header-title { flex: 1; text-align: center; font-size: 22px; font-weight: 700; color: #1a1a1a; }
 
   /* Grid */
-  .grid-wrapper {
-    position: relative;
-    margin: 8px 0;
-  }
+  .grid-wrapper { position: relative; margin: 8px 0; }
   #grid {
     display: grid;
     grid-template-columns: repeat(8, 60px);
@@ -55,6 +52,7 @@
     border: 2px solid #d1d5db;
     border-radius: 4px;
     overflow: hidden;
+    position: relative;
     user-select: none;
     touch-action: none;
   }
@@ -80,22 +78,25 @@
   }
   .cell.current-target .node-circle { background: #c084fc; }
 
-  /* Path connector lines inside cells */
+  /* Path connector lines */
   .path-line {
     position: absolute; background: #9ca3af; z-index: 1; pointer-events: none;
   }
-  .path-line.h { width: 100%; height: 8px; top: 50%; transform: translateY(-50%); left: 0; }
-  .path-line.v { height: 100%; width: 8px; left: 50%; transform: translateX(-50%); top: 0; }
+  .path-line.h  { width: 100%; height: 8px; top: 50%; transform: translateY(-50%); left: 0; }
+  .path-line.v  { height: 100%; width: 8px; left: 50%; transform: translateX(-50%); top: 0; }
   .path-line.half-r { width: 50%; height: 8px; top: 50%; transform: translateY(-50%); right: 0; left: auto; }
   .path-line.half-l { width: 50%; height: 8px; top: 50%; transform: translateY(-50%); left: 0; }
   .path-line.half-d { height: 50%; width: 8px; left: 50%; transform: translateX(-50%); bottom: 0; top: auto; }
   .path-line.half-u { height: 50%; width: 8px; left: 50%; transform: translateX(-50%); top: 0; }
 
-  /* Thick borders */
-  .border-top { border-top: 3px solid #1a1a1a !important; }
-  .border-bottom { border-bottom: 3px solid #1a1a1a !important; }
-  .border-left { border-left: 3px solid #1a1a1a !important; }
-  .border-right { border-right: 3px solid #1a1a1a !important; }
+  /* Maze walls */
+  .game-wall {
+    position: absolute;
+    background: #1a1a1a;
+    z-index: 5;
+    pointer-events: none;
+    border-radius: 2px;
+  }
 
   /* Buttons */
   .game-footer { display: flex; gap: 12px; width: 100%; margin-top: 8px; }
@@ -109,17 +110,23 @@
   /* Clear overlay */
   #clear-overlay {
     display: none; position: absolute; inset: 0;
-    background: rgba(255,255,255,0.88);
+    background: rgba(255,255,255,0.92);
     flex-direction: column; align-items: center; justify-content: center;
-    gap: 20px; border-radius: 4px; z-index: 10;
+    gap: 24px; border-radius: 4px; z-index: 10;
   }
   #clear-overlay.show { display: flex; }
   .clear-text { font-size: 40px; font-weight: 800; color: #1a1a1a; }
+  .clear-buttons { display: flex; gap: 12px; }
   .btn-next {
     background: #1a1a1a; color: #fff; border: none; border-radius: 12px;
-    padding: 14px 40px; font-size: 18px; font-weight: 700; cursor: pointer;
+    padding: 14px 28px; font-size: 16px; font-weight: 700; cursor: pointer;
+    transition: background 0.1s;
   }
   .btn-next:hover { background: #333; }
+  .btn-retry {
+    background: #6b7280;
+  }
+  .btn-retry:hover { background: #4b5563; }
 
   @media (max-width: 520px) {
     #grid {
@@ -128,6 +135,7 @@
     }
     .cell { width: 100%; height: 100%; }
     .node-circle { width: 36px; height: 36px; font-size: 14px; }
+    .clear-buttons { flex-direction: column; align-items: center; }
   }
 </style>
 </head>
@@ -151,7 +159,10 @@
     <div id="grid"></div>
     <div id="clear-overlay">
       <div class="clear-text">クリア！ 🎉</div>
-      <button class="btn-next" id="btn-next">もう一度</button>
+      <div class="clear-buttons">
+        <button class="btn-next btn-retry" id="btn-retry">もう一度</button>
+        <button class="btn-next" id="btn-different">別のパターン</button>
+      </div>
     </div>
   </div>
   <div class="game-footer">
@@ -161,263 +172,221 @@
 </div>
 
 <script>
+// ===================== WALL HELPERS =====================
+const B  = (r,c)       => ({row:r, col:c, side:'bottom'});
+const R  = (r,c)       => ({row:r, col:c, side:'right'});
+const HW = (r,c1,c2)   => { const a=[]; for(let c=c1;c<=c2;c++) a.push(B(r,c)); return a; };
+const VW = (r1,r2,c)   => { const a=[]; for(let r=r1;r<=r2;r++) a.push(R(r,c)); return a; };
+
 // ===================== PUZZLE DATA =====================
 const PUZZLES = [
-  // 1
-  {
-    id: 1, grid: 8,
-    nodes: [
-      { num: 1, row: 0, col: 0 },
-      { num: 2, row: 0, col: 7 },
-      { num: 3, row: 7, col: 7 },
-      { num: 4, row: 7, col: 0 },
-    ],
-    borders: []
+  // 1: corners — horizontal bands
+  { id:1, grid:8,
+    nodes:[{num:1,row:0,col:0},{num:2,row:0,col:7},{num:3,row:7,col:7},{num:4,row:7,col:0}],
+    borders:[
+      ...HW(1,1,5), ...HW(6,2,6),
+      ...VW(2,5,2), ...VW(2,5,5),
+      ...HW(3,3,5), ...HW(4,2,4),
+    ]
   },
-  // 2
-  {
-    id: 2, grid: 8,
-    nodes: [
-      { num: 1, row: 1, col: 1 },
-      { num: 2, row: 1, col: 6 },
-      { num: 3, row: 6, col: 6 },
-      { num: 4, row: 6, col: 1 },
-    ],
-    borders: []
+  // 2: inner corners — vertical pillars with gap
+  { id:2, grid:8,
+    nodes:[{num:1,row:1,col:1},{num:2,row:1,col:6},{num:3,row:6,col:6},{num:4,row:6,col:1}],
+    borders:[
+      ...VW(0,2,2), ...VW(5,7,2),
+      ...VW(0,2,5), ...VW(5,7,5),
+      ...HW(3,3,4), ...HW(4,3,4),
+      ...HW(3,0,1), ...HW(4,6,7),
+    ]
   },
-  // 3
-  {
-    id: 3, grid: 8,
-    nodes: [
-      { num: 1, row: 0, col: 3 },
-      { num: 2, row: 3, col: 7 },
-      { num: 3, row: 7, col: 4 },
-      { num: 4, row: 4, col: 0 },
-    ],
-    borders: []
+  // 3: off-center 4 nodes — diagonal staircase
+  { id:3, grid:8,
+    nodes:[{num:1,row:0,col:3},{num:2,row:3,col:7},{num:3,row:7,col:4},{num:4,row:4,col:0}],
+    borders:[
+      ...HW(1,0,2), ...HW(2,5,7),
+      ...VW(1,3,2), ...VW(2,4,4),
+      ...HW(5,0,2), ...HW(4,5,7),
+      ...VW(4,6,6), ...VW(1,3,5),
+    ]
   },
-  // 4
-  {
-    id: 4, grid: 8,
-    nodes: [
-      { num: 1, row: 0, col: 0 },
-      { num: 2, row: 3, col: 3 },
-      { num: 3, row: 0, col: 7 },
-      { num: 4, row: 7, col: 7 },
-      { num: 5, row: 7, col: 0 },
-    ],
-    borders: []
+  // 4: 5 nodes — double center pillars
+  { id:4, grid:8,
+    nodes:[{num:1,row:0,col:0},{num:2,row:3,col:3},{num:3,row:0,col:7},{num:4,row:7,col:7},{num:5,row:7,col:0}],
+    borders:[
+      ...VW(0,3,3), ...VW(4,7,4),
+      ...HW(0,1,2), ...HW(7,5,6),
+      ...HW(3,5,7), ...HW(4,0,2),
+      ...VW(0,2,5), ...VW(5,7,2),
+    ]
   },
-  // 5
-  {
-    id: 5, grid: 8,
-    nodes: [
-      { num: 1, row: 0, col: 0 },
-      { num: 2, row: 0, col: 4 },
-      { num: 3, row: 4, col: 7 },
-      { num: 4, row: 7, col: 3 },
-      { num: 5, row: 3, col: 0 },
-    ],
-    borders: []
+  // 5: 5 nodes — inner cross
+  { id:5, grid:8,
+    nodes:[{num:1,row:0,col:0},{num:2,row:0,col:4},{num:3,row:4,col:7},{num:4,row:7,col:3},{num:5,row:3,col:0}],
+    borders:[
+      ...HW(1,2,5), ...HW(6,2,5),
+      ...VW(2,5,2), ...VW(2,5,5),
+      ...HW(3,3,5), ...HW(4,2,4),
+    ]
   },
-  // 6
-  {
-    id: 6, grid: 8,
-    nodes: [
-      { num: 1, row: 2, col: 0 },
-      { num: 2, row: 0, col: 5 },
-      { num: 3, row: 5, col: 7 },
-      { num: 4, row: 7, col: 2 },
-      { num: 5, row: 4, col: 4 },
-    ],
-    borders: []
+  // 6: 5 nodes — L-shape walls
+  { id:6, grid:8,
+    nodes:[{num:1,row:2,col:0},{num:2,row:0,col:5},{num:3,row:5,col:7},{num:4,row:7,col:2},{num:5,row:4,col:4}],
+    borders:[
+      ...HW(1,0,2), ...HW(1,6,7),
+      ...VW(2,5,3), ...VW(2,5,6),
+      ...HW(3,4,5),
+      ...HW(6,0,2), ...HW(6,5,7),
+      ...VW(0,2,1), ...VW(5,7,5),
+    ]
   },
-  // 7
-  {
-    id: 7, grid: 8,
-    nodes: [
-      { num: 1, row: 0, col: 0 },
-      { num: 2, row: 2, col: 7 },
-      { num: 3, row: 5, col: 5 },
-      { num: 4, row: 7, col: 7 },
-      { num: 5, row: 7, col: 0 },
-      { num: 6, row: 4, col: 2 },
-    ],
-    borders: []
+  // 7: 6 nodes — pinwheel
+  { id:7, grid:8,
+    nodes:[{num:1,row:0,col:0},{num:2,row:2,col:7},{num:3,row:5,col:5},{num:4,row:7,col:7},{num:5,row:7,col:0},{num:6,row:4,col:2}],
+    borders:[
+      ...HW(1,2,5), ...HW(6,2,6),
+      ...VW(1,3,3), ...VW(4,6,5),
+      ...HW(3,0,2), ...HW(4,5,7),
+      ...VW(0,2,6), ...VW(5,7,1),
+    ]
   },
-  // 8
-  {
-    id: 8, grid: 8,
-    nodes: [
-      { num: 1, row: 0, col: 1 },
-      { num: 2, row: 1, col: 6 },
-      { num: 3, row: 4, col: 7 },
-      { num: 4, row: 7, col: 5 },
-      { num: 5, row: 6, col: 0 },
-      { num: 6, row: 3, col: 3 },
-    ],
-    borders: []
+  // 8: 6 nodes — small checkers
+  { id:8, grid:8,
+    nodes:[{num:1,row:0,col:1},{num:2,row:1,col:6},{num:3,row:4,col:7},{num:4,row:7,col:5},{num:5,row:6,col:0},{num:6,row:3,col:3}],
+    borders:[
+      ...HW(2,0,2), ...HW(2,4,6),
+      ...HW(5,1,3), ...HW(5,5,7),
+      ...VW(2,4,4), ...VW(3,5,2),
+      ...HW(3,5,6), ...HW(4,0,2),
+    ]
   },
-  // 9
-  {
-    id: 9, grid: 8,
-    nodes: [
-      { num: 1, row: 0, col: 0 },
-      { num: 2, row: 0, col: 7 },
-      { num: 3, row: 4, col: 4 },
-      { num: 4, row: 7, col: 0 },
-      { num: 5, row: 7, col: 7 },
-    ],
-    borders: []
+  // 9: 5 nodes — T-bars
+  { id:9, grid:8,
+    nodes:[{num:1,row:0,col:0},{num:2,row:0,col:7},{num:3,row:4,col:4},{num:4,row:7,col:0},{num:5,row:7,col:7}],
+    borders:[
+      ...HW(2,0,3), ...HW(2,4,7),
+      ...VW(0,3,3), ...VW(0,3,4),
+      ...HW(5,0,3), ...HW(5,4,7),
+      ...VW(4,7,3), ...VW(4,7,4),
+    ]
   },
-  // 10
-  {
-    id: 10, grid: 8,
-    nodes: [
-      { num: 1, row: 3, col: 0 },
-      { num: 2, row: 0, col: 3 },
-      { num: 3, row: 3, col: 7 },
-      { num: 4, row: 7, col: 4 },
-      { num: 5, row: 5, col: 1 },
-    ],
-    borders: []
+  // 10: 5 nodes — side channels
+  { id:10, grid:8,
+    nodes:[{num:1,row:3,col:0},{num:2,row:0,col:3},{num:3,row:3,col:7},{num:4,row:7,col:4},{num:5,row:5,col:1}],
+    borders:[
+      ...VW(0,3,2), ...VW(4,7,2),
+      ...VW(0,3,5), ...VW(4,7,5),
+      ...HW(3,3,4),
+      ...HW(1,3,5), ...HW(5,3,5),
+    ]
   },
-  // 11
-  {
-    id: 11, grid: 8,
-    nodes: [
-      { num: 1, row: 0, col: 2 },
-      { num: 2, row: 2, col: 5 },
-      { num: 3, row: 5, col: 7 },
-      { num: 4, row: 7, col: 4 },
-      { num: 5, row: 4, col: 1 },
-      { num: 6, row: 7, col: 0 },
-    ],
-    borders: []
+  // 11: 6 nodes — zigzag
+  { id:11, grid:8,
+    nodes:[{num:1,row:0,col:2},{num:2,row:2,col:5},{num:3,row:5,col:7},{num:4,row:7,col:4},{num:5,row:4,col:1},{num:6,row:7,col:0}],
+    borders:[
+      ...HW(1,3,6), ...HW(3,0,2),
+      ...VW(1,4,4), ...VW(3,6,3),
+      ...HW(3,4,6), ...HW(5,0,3),
+      ...VW(0,2,1), ...VW(5,7,6),
+    ]
   },
-  // 12
-  {
-    id: 12, grid: 8,
-    nodes: [
-      { num: 1, row: 1, col: 0 },
-      { num: 2, row: 0, col: 6 },
-      { num: 3, row: 3, col: 4 },
-      { num: 4, row: 6, col: 7 },
-      { num: 5, row: 7, col: 1 },
-    ],
-    borders: []
+  // 12: 5 nodes — rooms
+  { id:12, grid:8,
+    nodes:[{num:1,row:1,col:0},{num:2,row:0,col:6},{num:3,row:3,col:4},{num:4,row:6,col:7},{num:5,row:7,col:1}],
+    borders:[
+      ...HW(2,1,3), ...HW(2,4,6),
+      ...VW(2,4,2), ...VW(2,4,5),
+      ...HW(4,0,2), ...HW(5,4,6),
+      ...VW(4,6,3), ...VW(0,2,4),
+    ]
   },
-  // 13
-  {
-    id: 13, grid: 8,
-    nodes: [
-      { num: 1, row: 0, col: 0 },
-      { num: 2, row: 2, col: 3 },
-      { num: 3, row: 0, col: 7 },
-      { num: 4, row: 5, col: 5 },
-      { num: 5, row: 7, col: 7 },
-      { num: 6, row: 5, col: 2 },
-    ],
-    borders: []
+  // 13: 6 nodes — side fences
+  { id:13, grid:8,
+    nodes:[{num:1,row:0,col:0},{num:2,row:2,col:3},{num:3,row:0,col:7},{num:4,row:5,col:5},{num:5,row:7,col:7},{num:6,row:5,col:2}],
+    borders:[
+      ...VW(0,3,1), ...VW(4,7,1),
+      ...VW(0,3,6), ...VW(4,7,6),
+      ...HW(3,2,5),
+      ...HW(1,2,4), ...HW(5,3,5),
+    ]
   },
-  // 14
-  {
-    id: 14, grid: 8,
-    nodes: [
-      { num: 1, row: 7, col: 0 },
-      { num: 2, row: 4, col: 2 },
-      { num: 3, row: 0, col: 1 },
-      { num: 4, row: 2, col: 6 },
-      { num: 5, row: 7, col: 7 },
-      { num: 6, row: 5, col: 4 },
-    ],
-    borders: []
+  // 14: 6 nodes — asymmetric
+  { id:14, grid:8,
+    nodes:[{num:1,row:7,col:0},{num:2,row:4,col:2},{num:3,row:0,col:1},{num:4,row:2,col:6},{num:5,row:7,col:7},{num:6,row:5,col:4}],
+    borders:[
+      ...HW(1,2,5), ...HW(6,2,5),
+      ...VW(1,4,3), ...VW(3,6,5),
+      ...HW(3,0,2), ...HW(4,5,7),
+    ]
   },
-  // 15
-  {
-    id: 15, grid: 8,
-    nodes: [
-      { num: 1, row: 0, col: 0 },
-      { num: 2, row: 0, col: 5 },
-      { num: 3, row: 3, col: 7 },
-      { num: 4, row: 7, col: 7 },
-      { num: 5, row: 7, col: 0 },
-      { num: 6, row: 4, col: 2 },
-    ],
-    borders: []
+  // 15: 6 nodes — pinwheel B
+  { id:15, grid:8,
+    nodes:[{num:1,row:0,col:0},{num:2,row:0,col:5},{num:3,row:3,col:7},{num:4,row:7,col:7},{num:5,row:7,col:0},{num:6,row:4,col:2}],
+    borders:[
+      ...HW(1,2,4), ...HW(2,0,2),
+      ...VW(2,5,4), ...VW(3,6,2),
+      ...HW(4,4,7), ...HW(5,4,6),
+      ...VW(0,3,6), ...VW(4,7,5),
+    ]
   },
-  // 16
-  {
-    id: 16, grid: 8,
-    nodes: [
-      { num: 1, row: 1, col: 2 },
-      { num: 2, row: 1, col: 5 },
-      { num: 3, row: 4, col: 7 },
-      { num: 4, row: 6, col: 5 },
-      { num: 5, row: 6, col: 2 },
-      { num: 6, row: 4, col: 0 },
-    ],
-    borders: []
+  // 16: 6 nodes — symmetric border
+  { id:16, grid:8,
+    nodes:[{num:1,row:1,col:2},{num:2,row:1,col:5},{num:3,row:4,col:7},{num:4,row:6,col:5},{num:5,row:6,col:2},{num:6,row:4,col:0}],
+    borders:[
+      ...HW(2,0,1), ...HW(2,6,7),
+      ...HW(5,0,1), ...HW(5,6,7),
+      ...VW(2,5,3), ...VW(2,5,4),
+      ...HW(3,3,4), ...HW(4,3,4),
+    ]
   },
-  // 17
-  {
-    id: 17, grid: 8,
-    nodes: [
-      { num: 1, row: 0, col: 4 },
-      { num: 2, row: 2, col: 7 },
-      { num: 3, row: 7, col: 6 },
-      { num: 4, row: 7, col: 1 },
-      { num: 5, row: 2, col: 0 },
-    ],
-    borders: []
+  // 17: 5 nodes — diagonal bars
+  { id:17, grid:8,
+    nodes:[{num:1,row:0,col:4},{num:2,row:2,col:7},{num:3,row:7,col:6},{num:4,row:7,col:1},{num:5,row:2,col:0}],
+    borders:[
+      ...HW(1,1,4), ...HW(3,3,6),
+      ...VW(0,3,2), ...VW(0,3,5),
+      ...HW(5,1,4), ...VW(4,7,3),
+      ...HW(2,2,4), ...HW(6,3,5),
+    ]
   },
-  // 18
-  {
-    id: 18, grid: 8,
-    nodes: [
-      { num: 1, row: 0, col: 0 },
-      { num: 2, row: 3, col: 3 },
-      { num: 3, row: 3, col: 6 },
-      { num: 4, row: 0, col: 7 },
-      { num: 5, row: 7, col: 7 },
-      { num: 6, row: 7, col: 0 },
-    ],
-    borders: []
+  // 18: 6 nodes — inner ring
+  { id:18, grid:8,
+    nodes:[{num:1,row:0,col:0},{num:2,row:3,col:3},{num:3,row:3,col:6},{num:4,row:0,col:7},{num:5,row:7,col:7},{num:6,row:7,col:0}],
+    borders:[
+      ...VW(0,2,1), ...VW(0,2,6),
+      ...VW(5,7,1), ...VW(5,7,6),
+      ...HW(2,2,5), ...HW(5,2,5),
+      ...VW(2,5,2), ...VW(2,5,5),
+    ]
   },
-  // 19
-  {
-    id: 19, grid: 8,
-    nodes: [
-      { num: 1, row: 0, col: 0 },
-      { num: 2, row: 2, col: 4 },
-      { num: 3, row: 5, col: 2 },
-      { num: 4, row: 5, col: 6 },
-      { num: 5, row: 7, col: 4 },
-      { num: 6, row: 7, col: 0 },
-    ],
-    borders: []
+  // 19: 6 nodes — S-curve
+  { id:19, grid:8,
+    nodes:[{num:1,row:0,col:0},{num:2,row:2,col:4},{num:3,row:5,col:2},{num:4,row:5,col:6},{num:5,row:7,col:4},{num:6,row:7,col:0}],
+    borders:[
+      ...HW(1,2,5), ...VW(1,3,2),
+      ...VW(3,6,4), ...HW(4,3,6),
+      ...HW(3,0,2), ...HW(6,1,4),
+      ...VW(4,6,5),
+    ]
   },
-  // 20
-  {
-    id: 20, grid: 8,
-    nodes: [
-      { num: 1, row: 1, col: 1 },
-      { num: 2, row: 1, col: 4 },
-      { num: 3, row: 4, col: 6 },
-      { num: 4, row: 6, col: 3 },
-      { num: 5, row: 3, col: 1 },
-      { num: 6, row: 6, col: 7 },
-    ],
-    borders: []
+  // 20: 6 nodes — complex inner maze
+  { id:20, grid:8,
+    nodes:[{num:1,row:1,col:1},{num:2,row:1,col:4},{num:3,row:4,col:6},{num:4,row:6,col:3},{num:5,row:3,col:1},{num:6,row:6,col:7}],
+    borders:[
+      ...HW(2,0,2), ...HW(2,5,7),
+      ...VW(2,5,3), ...VW(2,5,5),
+      ...HW(5,0,2), ...HW(5,5,7),
+      ...VW(0,2,2), ...VW(5,7,4),
+    ]
   },
 ];
 
 // ===================== GAME STATE =====================
-let puzzle = null;
+let puzzle    = null;
 let currentTarget = 1;
-let path = [];          // [{row, col}, ...]
+let path      = [];          // [{row, col}, ...]
 let filledCells = new Set(); // "row,col"
-let nodeMap = {};       // "row,col" -> node num
+let nodeMap   = {};          // "row,col" -> node num
+let wallSet   = new Set();   // "row,col,right|bottom" canonical form
 let isDragging = false;
 
 // ===================== UTILS =====================
@@ -427,6 +396,32 @@ function getCell(r, c) {
 }
 function isAdjacent(a, b) {
   return Math.abs(a.row - b.row) + Math.abs(a.col - b.col) === 1;
+}
+
+// Build canonical wall set from borders array
+function buildWallSet(p) {
+  wallSet = new Set();
+  if (!p.borders) return;
+  p.borders.forEach(b => {
+    let { row, col, side } = b;
+    if (side === 'top'   && row > 0) { row -= 1; side = 'bottom'; }
+    if (side === 'left'  && col > 0) { col -= 1; side = 'right';  }
+    if (side === 'bottom' && row < 7) wallSet.add(row + ',' + col + ',bottom');
+    if (side === 'right'  && col < 7) wallSet.add(row + ',' + col + ',right');
+  });
+}
+
+// Returns true if there is a wall blocking movement from (r1,c1) to (r2,c2)
+function isWallBetween(r1, c1, r2, c2) {
+  if (r1 === r2) {
+    // Horizontal move
+    const minC = Math.min(c1, c2);
+    return wallSet.has(r1 + ',' + minC + ',right');
+  } else {
+    // Vertical move
+    const minR = Math.min(r1, r2);
+    return wallSet.has(minR + ',' + c1 + ',bottom');
+  }
 }
 
 // ===================== SCREEN MANAGEMENT =====================
@@ -443,6 +438,7 @@ function startPuzzle(p) {
   filledCells = new Set();
   nodeMap = {};
   p.nodes.forEach(n => { nodeMap[key(n.row, n.col)] = n.num; });
+  buildWallSet(p);
   document.getElementById('clear-overlay').classList.remove('show');
   renderGrid();
   showScreen('screen-game');
@@ -450,6 +446,12 @@ function startPuzzle(p) {
 
 function randomPuzzle() {
   return PUZZLES[Math.floor(Math.random() * PUZZLES.length)];
+}
+function differentPuzzle() {
+  if (PUZZLES.length <= 1) return PUZZLES[0];
+  let p;
+  do { p = PUZZLES[Math.floor(Math.random() * PUZZLES.length)]; } while (p === puzzle);
+  return p;
 }
 
 // ===================== RENDER =====================
@@ -462,17 +464,6 @@ function renderGrid() {
       cell.className = 'cell';
       cell.dataset.r = r;
       cell.dataset.c = c;
-
-      // Apply borders
-      if (puzzle.borders) {
-        puzzle.borders.forEach(b => {
-          if (b.row === r && b.col === c) {
-            cell.classList.add('border-' + b.side);
-          }
-        });
-      }
-
-      // Node
       const nodeNum = nodeMap[key(r, c)];
       if (nodeNum !== undefined) {
         const circle = document.createElement('div');
@@ -481,28 +472,94 @@ function renderGrid() {
         cell.appendChild(circle);
         if (nodeNum === currentTarget) cell.classList.add('current-target');
       }
-
       grid.appendChild(cell);
     }
   }
   redrawPath();
+  // Render walls after layout is computed
+  requestAnimationFrame(renderWalls);
+}
+
+function renderWalls() {
+  const grid = document.getElementById('grid');
+  grid.querySelectorAll('.game-wall').forEach(el => el.remove());
+  if (!puzzle || !puzzle.borders || puzzle.borders.length === 0) return;
+
+  const firstCell = grid.querySelector('.cell');
+  if (!firstCell) return;
+  const cellPx = firstCell.offsetWidth;
+  const stride  = cellPx + 2; // cell + 2px gap
+  const THICK   = 4;
+
+  // Split wallSet into right/bottom lookup sets
+  const rw = new Set(), bw = new Set();
+  wallSet.forEach(w => {
+    const p    = w.lastIndexOf(',');
+    const side = w.slice(p + 1);
+    const rc   = w.slice(0, p);
+    if (side === 'right') rw.add(rc); else bw.add(rc);
+  });
+
+  function makeWall(left, top, width, height) {
+    const el = document.createElement('div');
+    el.className = 'game-wall';
+    el.style.left   = left   + 'px';
+    el.style.top    = top    + 'px';
+    el.style.width  = width  + 'px';
+    el.style.height = height + 'px';
+    grid.appendChild(el);
+  }
+
+  // Merge consecutive right-wall rows → single vertical div
+  const doneR = new Set();
+  for (let c = 0; c < 7; c++) {
+    for (let r = 0; r < 7; r++) {
+      const k = r + ',' + c;
+      if (!rw.has(k) || doneR.has(k)) continue;
+      let eR = r;
+      while (eR + 1 < 7 && rw.has((eR + 1) + ',' + c)) eR++;
+      for (let i = r; i <= eR; i++) doneR.add(i + ',' + c);
+      makeWall(
+        c * stride + cellPx - 1,   // 1px inside right edge of cell
+        r * stride,
+        THICK,
+        (eR - r) * stride + cellPx  // spans cells r..eR (including inter-cell gaps)
+      );
+    }
+  }
+
+  // Merge consecutive bottom-wall cols → single horizontal div
+  const doneB = new Set();
+  for (let r = 0; r < 7; r++) {
+    for (let c = 0; c < 7; c++) {
+      const k = r + ',' + c;
+      if (!bw.has(k) || doneB.has(k)) continue;
+      let eC = c;
+      while (eC + 1 < 7 && bw.has(r + ',' + (eC + 1))) eC++;
+      for (let i = c; i <= eC; i++) doneB.add(r + ',' + i);
+      makeWall(
+        c * stride,
+        r * stride + cellPx - 1,   // 1px inside bottom edge of cell
+        (eC - c) * stride + cellPx, // spans cells c..eC
+        THICK
+      );
+    }
+  }
 }
 
 function redrawPath() {
-  // Reset all cells visual state first
   document.querySelectorAll('#grid .cell').forEach(cell => {
     cell.classList.remove('filled', 'filled-node', 'current-target');
     cell.querySelectorAll('.path-line').forEach(el => el.remove());
   });
 
-  // Mark current target node
+  // Highlight current target node
   const tNode = puzzle.nodes.find(n => n.num === currentTarget);
   if (tNode) {
     const tc = getCell(tNode.row, tNode.col);
     if (tc) tc.classList.add('current-target');
   }
 
-  // Draw path
   path.forEach((pos, i) => {
     const cell = getCell(pos.row, pos.col);
     if (!cell) return;
@@ -511,34 +568,26 @@ function redrawPath() {
 
     const prev = path[i - 1];
     const next = path[i + 1];
-
-    // Determine which halves to draw
     const lines = [];
     if (prev) {
       const dr = prev.row - pos.row, dc = prev.col - pos.col;
-      if (dc === 1) lines.push('half-r');
+      if      (dc ===  1) lines.push('half-r');
       else if (dc === -1) lines.push('half-l');
-      else if (dr === 1) lines.push('half-d');
+      else if (dr ===  1) lines.push('half-d');
       else if (dr === -1) lines.push('half-u');
     }
     if (next) {
       const dr = next.row - pos.row, dc = next.col - pos.col;
-      if (dc === 1) lines.push('half-r');
+      if      (dc ===  1) lines.push('half-r');
       else if (dc === -1) lines.push('half-l');
-      else if (dr === 1) lines.push('half-d');
+      else if (dr ===  1) lines.push('half-d');
       else if (dr === -1) lines.push('half-u');
     }
-    // Combine half lines intelligently
-    const hasR = lines.includes('half-r');
-    const hasL = lines.includes('half-l');
-    const hasD = lines.includes('half-d');
-    const hasU = lines.includes('half-u');
-
-    if (hasR && hasL) {
-      addLine(cell, 'h');
-    } else if (hasU && hasD) {
-      addLine(cell, 'v');
-    } else {
+    const hasR = lines.includes('half-r'), hasL = lines.includes('half-l');
+    const hasD = lines.includes('half-d'), hasU = lines.includes('half-u');
+    if      (hasR && hasL) addLine(cell, 'h');
+    else if (hasU && hasD) addLine(cell, 'v');
+    else {
       if (hasR) addLine(cell, 'half-r');
       if (hasL) addLine(cell, 'half-l');
       if (hasD) addLine(cell, 'half-d');
@@ -565,7 +614,6 @@ function getCellFromPoint(x, y) {
 function tryMove(r, c) {
   const k = key(r, c);
 
-  // If path is empty, must start from currentTarget node
   if (path.length === 0) {
     const tNode = puzzle.nodes.find(n => n.num === currentTarget);
     if (!tNode || tNode.row !== r || tNode.col !== c) return;
@@ -576,11 +624,10 @@ function tryMove(r, c) {
   }
 
   const last = path[path.length - 1];
-
-  // Check adjacency
+  if (last.row === r && last.col === c) return;
   if (!isAdjacent(last, { row: r, col: c })) return;
 
-  // Backtrack: if moving to second-to-last cell in path, pop the last
+  // Backtrack: moving to second-to-last in path
   if (path.length >= 2) {
     const prev = path[path.length - 2];
     if (prev.row === r && prev.col === c) {
@@ -596,15 +643,16 @@ function tryMove(r, c) {
     }
   }
 
-  // Can't revisit (unless backtracking handled above)
+  // Wall check
+  if (isWallBetween(last.row, last.col, r, c)) return;
+
+  // Revisit check
   if (filledCells.has(k)) return;
 
-  // Check if this cell is a node
+  // Node check
   const nodeNum = nodeMap[k];
   if (nodeNum !== undefined) {
-    // Only can enter the next target node or the current target (start)
     if (nodeNum !== currentTarget + 1) return;
-    // Advance target
     path.push({ row: r, col: c });
     filledCells.add(k);
     currentTarget++;
@@ -620,8 +668,7 @@ function tryMove(r, c) {
 }
 
 function checkClear() {
-  const maxNode = puzzle.nodes.length;
-  if (currentTarget >= maxNode && filledCells.size === 64) {
+  if (currentTarget >= puzzle.nodes.length && filledCells.size === 64) {
     document.getElementById('clear-overlay').classList.add('show');
   }
 }
@@ -630,13 +677,10 @@ function undo() {
   if (path.length === 0) return;
   const last = path[path.length - 1];
   const k = key(last.row, last.col);
-
-  // If last cell is a non-starting node, decrement target
   const nodeNum = nodeMap[k];
   if (nodeNum !== undefined && nodeNum === currentTarget && nodeNum > 1) {
     currentTarget--;
   }
-
   path.pop();
   filledCells.delete(k);
   redrawPath();
@@ -646,16 +690,17 @@ function undo() {
 document.getElementById('btn-play').addEventListener('click', () => {
   startPuzzle(randomPuzzle());
 });
-
 document.getElementById('btn-back').addEventListener('click', () => {
   showScreen('screen-title');
 });
-
 document.getElementById('btn-undo').addEventListener('click', undo);
 document.getElementById('btn-hint').addEventListener('click', () => {});
 
-document.getElementById('btn-next').addEventListener('click', () => {
-  startPuzzle(randomPuzzle());
+document.getElementById('btn-retry').addEventListener('click', () => {
+  startPuzzle(puzzle);
+});
+document.getElementById('btn-different').addEventListener('click', () => {
+  startPuzzle(differentPuzzle());
 });
 
 // Mouse events
@@ -667,14 +712,12 @@ gridEl.addEventListener('mousedown', e => {
   isDragging = true;
   tryMove(pos.row, pos.col);
 });
-
 gridEl.addEventListener('mousemove', e => {
   if (!isDragging) return;
   const pos = getCellFromPoint(e.clientX, e.clientY);
   if (!pos) return;
   tryMove(pos.row, pos.col);
 });
-
 document.addEventListener('mouseup', () => { isDragging = false; });
 
 // Touch events
@@ -686,7 +729,6 @@ gridEl.addEventListener('touchstart', e => {
   isDragging = true;
   tryMove(pos.row, pos.col);
 }, { passive: false });
-
 gridEl.addEventListener('touchmove', e => {
   e.preventDefault();
   if (!isDragging) return;
@@ -695,9 +737,11 @@ gridEl.addEventListener('touchmove', e => {
   if (!pos) return;
   tryMove(pos.row, pos.col);
 }, { passive: false });
-
-gridEl.addEventListener('touchend', () => { isDragging = false; });
+gridEl.addEventListener('touchend',   () => { isDragging = false; });
 gridEl.addEventListener('touchcancel', () => { isDragging = false; });
+
+// Re-render walls on resize (cell sizes may change on mobile)
+window.addEventListener('resize', () => { if (puzzle) renderWalls(); });
 </script>
 </body>
 </html>
