@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NumberPath</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #f5f5f0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .screen { display: none; width: 100%; max-width: 560px; padding: 16px; }
+  .screen.active { display: flex; flex-direction: column; align-items: center; }
+
+  /* Title Screen */
+  #screen-title { justify-content: center; min-height: 100vh; gap: 40px; }
+  .game-title { font-size: 48px; font-weight: 800; letter-spacing: -2px; color: #1a1a1a; }
+  .game-subtitle { font-size: 16px; color: #666; margin-top: -30px; }
+  .btn-play {
+    background: #1a1a1a; color: #fff; border: none; border-radius: 12px;
+    padding: 16px 48px; font-size: 20px; font-weight: 700;
+    cursor: pointer; letter-spacing: 2px; transition: transform 0.1s, background 0.1s;
+  }
+  .btn-play:hover { background: #333; transform: scale(1.04); }
+
+  /* Game Screen */
+  #screen-game { min-height: 100vh; justify-content: space-between; padding: 12px 16px; }
+  .game-header {
+    display: flex; align-items: center; width: 100%; margin-bottom: 8px;
+  }
+  .btn-back {
+    background: none; border: 2px solid #ccc; border-radius: 8px;
+    padding: 8px 14px; font-size: 18px; cursor: pointer; color: #555;
+    transition: border-color 0.1s;
+  }
+  .btn-back:hover { border-color: #888; }
+  .game-header-title { flex: 1; text-align: center; font-size: 22px; font-weight: 700; color: #1a1a1a; }
+
+  /* Grid */
+  .grid-wrapper {
+    position: relative;
+    margin: 8px 0;
+  }
+  #grid {
+    display: grid;
+    grid-template-columns: repeat(8, 60px);
+    grid-template-rows: repeat(8, 60px);
+    gap: 2px;
+    background: #d1d5db;
+    border: 2px solid #d1d5db;
+    border-radius: 4px;
+    overflow: hidden;
+    user-select: none;
+    touch-action: none;
+  }
+  .cell {
+    width: 60px; height: 60px;
+    background: #fff;
+    position: relative;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    transition: background 0.08s;
+  }
+  .cell.filled { background: #e5e7eb; }
+  .cell.filled-node { background: #e5e7eb; }
+
+  /* Node circles */
+  .node-circle {
+    width: 40px; height: 40px; border-radius: 50%;
+    background: #1a1a1a; color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 17px; font-weight: 700;
+    z-index: 2; position: relative; pointer-events: none;
+    transition: background 0.15s;
+  }
+  .cell.current-target .node-circle { background: #c084fc; }
+
+  /* Path connector lines inside cells */
+  .path-line {
+    position: absolute; background: #9ca3af; z-index: 1; pointer-events: none;
+  }
+  .path-line.h { width: 100%; height: 8px; top: 50%; transform: translateY(-50%); left: 0; }
+  .path-line.v { height: 100%; width: 8px; left: 50%; transform: translateX(-50%); top: 0; }
+  .path-line.half-r { width: 50%; height: 8px; top: 50%; transform: translateY(-50%); right: 0; left: auto; }
+  .path-line.half-l { width: 50%; height: 8px; top: 50%; transform: translateY(-50%); left: 0; }
+  .path-line.half-d { height: 50%; width: 8px; left: 50%; transform: translateX(-50%); bottom: 0; top: auto; }
+  .path-line.half-u { height: 50%; width: 8px; left: 50%; transform: translateX(-50%); top: 0; }
+
+  /* Thick borders */
+  .border-top { border-top: 3px solid #1a1a1a !important; }
+  .border-bottom { border-bottom: 3px solid #1a1a1a !important; }
+  .border-left { border-left: 3px solid #1a1a1a !important; }
+  .border-right { border-right: 3px solid #1a1a1a !important; }
+
+  /* Buttons */
+  .game-footer { display: flex; gap: 12px; width: 100%; margin-top: 8px; }
+  .btn-action {
+    flex: 1; background: #fff; border: 2px solid #d1d5db; border-radius: 12px;
+    padding: 12px 24px; font-size: 15px; font-weight: 600; cursor: pointer;
+    color: #374151; transition: background 0.1s, border-color 0.1s;
+  }
+  .btn-action:hover { background: #f3f4f6; border-color: #9ca3af; }
+
+  /* Clear overlay */
+  #clear-overlay {
+    display: none; position: absolute; inset: 0;
+    background: rgba(255,255,255,0.88);
+    flex-direction: column; align-items: center; justify-content: center;
+    gap: 20px; border-radius: 4px; z-index: 10;
+  }
+  #clear-overlay.show { display: flex; }
+  .clear-text { font-size: 40px; font-weight: 800; color: #1a1a1a; }
+  .btn-next {
+    background: #1a1a1a; color: #fff; border: none; border-radius: 12px;
+    padding: 14px 40px; font-size: 18px; font-weight: 700; cursor: pointer;
+  }
+  .btn-next:hover { background: #333; }
+
+  @media (max-width: 520px) {
+    #grid {
+      grid-template-columns: repeat(8, calc((100vw - 48px) / 8));
+      grid-template-rows: repeat(8, calc((100vw - 48px) / 8));
+    }
+    .cell { width: 100%; height: 100%; }
+    .node-circle { width: 36px; height: 36px; font-size: 14px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Title Screen -->
+<div id="screen-title" class="screen active">
+  <div class="game-title">NumberPath</div>
+  <div class="game-subtitle">数字を順番に繋いで全マスを埋めよう</div>
+  <button class="btn-play" id="btn-play">PLAY</button>
+</div>
+
+<!-- Game Screen -->
+<div id="screen-game" class="screen">
+  <div class="game-header">
+    <button class="btn-back" id="btn-back">←</button>
+    <div class="game-header-title">NumberPath</div>
+    <div style="width:52px"></div>
+  </div>
+  <div class="grid-wrapper">
+    <div id="grid"></div>
+    <div id="clear-overlay">
+      <div class="clear-text">クリア！ 🎉</div>
+      <button class="btn-next" id="btn-next">もう一度</button>
+    </div>
+  </div>
+  <div class="game-footer">
+    <button class="btn-action" id="btn-undo">↩ 取り消す</button>
+    <button class="btn-action" id="btn-hint">💡 ヒント</button>
+  </div>
+</div>
+
+<script>
+// ===================== PUZZLE DATA =====================
+const PUZZLES = [
+  // 1
+  {
+    id: 1, grid: 8,
+    nodes: [
+      { num: 1, row: 0, col: 0 },
+      { num: 2, row: 0, col: 7 },
+      { num: 3, row: 7, col: 7 },
+      { num: 4, row: 7, col: 0 },
+    ],
+    borders: []
+  },
+  // 2
+  {
+    id: 2, grid: 8,
+    nodes: [
+      { num: 1, row: 1, col: 1 },
+      { num: 2, row: 1, col: 6 },
+      { num: 3, row: 6, col: 6 },
+      { num: 4, row: 6, col: 1 },
+    ],
+    borders: []
+  },
+  // 3
+  {
+    id: 3, grid: 8,
+    nodes: [
+      { num: 1, row: 0, col: 3 },
+      { num: 2, row: 3, col: 7 },
+      { num: 3, row: 7, col: 4 },
+      { num: 4, row: 4, col: 0 },
+    ],
+    borders: []
+  },
+  // 4
+  {
+    id: 4, grid: 8,
+    nodes: [
+      { num: 1, row: 0, col: 0 },
+      { num: 2, row: 3, col: 3 },
+      { num: 3, row: 0, col: 7 },
+      { num: 4, row: 7, col: 7 },
+      { num: 5, row: 7, col: 0 },
+    ],
+    borders: []
+  },
+  // 5
+  {
+    id: 5, grid: 8,
+    nodes: [
+      { num: 1, row: 0, col: 0 },
+      { num: 2, row: 0, col: 4 },
+      { num: 3, row: 4, col: 7 },
+      { num: 4, row: 7, col: 3 },
+      { num: 5, row: 3, col: 0 },
+    ],
+    borders: []
+  },
+  // 6
+  {
+    id: 6, grid: 8,
+    nodes: [
+      { num: 1, row: 2, col: 0 },
+      { num: 2, row: 0, col: 5 },
+      { num: 3, row: 5, col: 7 },
+      { num: 4, row: 7, col: 2 },
+      { num: 5, row: 4, col: 4 },
+    ],
+    borders: []
+  },
+  // 7
+  {
+    id: 7, grid: 8,
+    nodes: [
+      { num: 1, row: 0, col: 0 },
+      { num: 2, row: 2, col: 7 },
+      { num: 3, row: 5, col: 5 },
+      { num: 4, row: 7, col: 7 },
+      { num: 5, row: 7, col: 0 },
+      { num: 6, row: 4, col: 2 },
+    ],
+    borders: []
+  },
+  // 8
+  {
+    id: 8, grid: 8,
+    nodes: [
+      { num: 1, row: 0, col: 1 },
+      { num: 2, row: 1, col: 6 },
+      { num: 3, row: 4, col: 7 },
+      { num: 4, row: 7, col: 5 },
+      { num: 5, row: 6, col: 0 },
+      { num: 6, row: 3, col: 3 },
+    ],
+    borders: []
+  },
+  // 9
+  {
+    id: 9, grid: 8,
+    nodes: [
+      { num: 1, row: 0, col: 0 },
+      { num: 2, row: 0, col: 7 },
+      { num: 3, row: 4, col: 4 },
+      { num: 4, row: 7, col: 0 },
+      { num: 5, row: 7, col: 7 },
+    ],
+    borders: []
+  },
+  // 10
+  {
+    id: 10, grid: 8,
+    nodes: [
+      { num: 1, row: 3, col: 0 },
+      { num: 2, row: 0, col: 3 },
+      { num: 3, row: 3, col: 7 },
+      { num: 4, row: 7, col: 4 },
+      { num: 5, row: 5, col: 1 },
+    ],
+    borders: []
+  },
+  // 11
+  {
+    id: 11, grid: 8,
+    nodes: [
+      { num: 1, row: 0, col: 2 },
+      { num: 2, row: 2, col: 5 },
+      { num: 3, row: 5, col: 7 },
+      { num: 4, row: 7, col: 4 },
+      { num: 5, row: 4, col: 1 },
+      { num: 6, row: 7, col: 0 },
+    ],
+    borders: []
+  },
+  // 12
+  {
+    id: 12, grid: 8,
+    nodes: [
+      { num: 1, row: 1, col: 0 },
+      { num: 2, row: 0, col: 6 },
+      { num: 3, row: 3, col: 4 },
+      { num: 4, row: 6, col: 7 },
+      { num: 5, row: 7, col: 1 },
+    ],
+    borders: []
+  },
+  // 13
+  {
+    id: 13, grid: 8,
+    nodes: [
+      { num: 1, row: 0, col: 0 },
+      { num: 2, row: 2, col: 3 },
+      { num: 3, row: 0, col: 7 },
+      { num: 4, row: 5, col: 5 },
+      { num: 5, row: 7, col: 7 },
+      { num: 6, row: 5, col: 2 },
+    ],
+    borders: []
+  },
+  // 14
+  {
+    id: 14, grid: 8,
+    nodes: [
+      { num: 1, row: 7, col: 0 },
+      { num: 2, row: 4, col: 2 },
+      { num: 3, row: 0, col: 1 },
+      { num: 4, row: 2, col: 6 },
+      { num: 5, row: 7, col: 7 },
+      { num: 6, row: 5, col: 4 },
+    ],
+    borders: []
+  },
+  // 15
+  {
+    id: 15, grid: 8,
+    nodes: [
+      { num: 1, row: 0, col: 0 },
+      { num: 2, row: 0, col: 5 },
+      { num: 3, row: 3, col: 7 },
+      { num: 4, row: 7, col: 7 },
+      { num: 5, row: 7, col: 0 },
+      { num: 6, row: 4, col: 2 },
+    ],
+    borders: []
+  },
+  // 16
+  {
+    id: 16, grid: 8,
+    nodes: [
+      { num: 1, row: 1, col: 2 },
+      { num: 2, row: 1, col: 5 },
+      { num: 3, row: 4, col: 7 },
+      { num: 4, row: 6, col: 5 },
+      { num: 5, row: 6, col: 2 },
+      { num: 6, row: 4, col: 0 },
+    ],
+    borders: []
+  },
+  // 17
+  {
+    id: 17, grid: 8,
+    nodes: [
+      { num: 1, row: 0, col: 4 },
+      { num: 2, row: 2, col: 7 },
+      { num: 3, row: 7, col: 6 },
+      { num: 4, row: 7, col: 1 },
+      { num: 5, row: 2, col: 0 },
+    ],
+    borders: []
+  },
+  // 18
+  {
+    id: 18, grid: 8,
+    nodes: [
+      { num: 1, row: 0, col: 0 },
+      { num: 2, row: 3, col: 3 },
+      { num: 3, row: 3, col: 6 },
+      { num: 4, row: 0, col: 7 },
+      { num: 5, row: 7, col: 7 },
+      { num: 6, row: 7, col: 0 },
+    ],
+    borders: []
+  },
+  // 19
+  {
+    id: 19, grid: 8,
+    nodes: [
+      { num: 1, row: 0, col: 0 },
+      { num: 2, row: 2, col: 4 },
+      { num: 3, row: 5, col: 2 },
+      { num: 4, row: 5, col: 6 },
+      { num: 5, row: 7, col: 4 },
+      { num: 6, row: 7, col: 0 },
+    ],
+    borders: []
+  },
+  // 20
+  {
+    id: 20, grid: 8,
+    nodes: [
+      { num: 1, row: 1, col: 1 },
+      { num: 2, row: 1, col: 4 },
+      { num: 3, row: 4, col: 6 },
+      { num: 4, row: 6, col: 3 },
+      { num: 5, row: 3, col: 1 },
+      { num: 6, row: 6, col: 7 },
+    ],
+    borders: []
+  },
+];
+
+// ===================== GAME STATE =====================
+let puzzle = null;
+let currentTarget = 1;
+let path = [];          // [{row, col}, ...]
+let filledCells = new Set(); // "row,col"
+let nodeMap = {};       // "row,col" -> node num
+let isDragging = false;
+
+// ===================== UTILS =====================
+function key(r, c) { return r + ',' + c; }
+function getCell(r, c) {
+  return document.querySelector('#grid .cell[data-r="' + r + '"][data-c="' + c + '"]');
+}
+function isAdjacent(a, b) {
+  return Math.abs(a.row - b.row) + Math.abs(a.col - b.col) === 1;
+}
+
+// ===================== SCREEN MANAGEMENT =====================
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+// ===================== PUZZLE INIT =====================
+function startPuzzle(p) {
+  puzzle = p;
+  currentTarget = 1;
+  path = [];
+  filledCells = new Set();
+  nodeMap = {};
+  p.nodes.forEach(n => { nodeMap[key(n.row, n.col)] = n.num; });
+  document.getElementById('clear-overlay').classList.remove('show');
+  renderGrid();
+  showScreen('screen-game');
+}
+
+function randomPuzzle() {
+  return PUZZLES[Math.floor(Math.random() * PUZZLES.length)];
+}
+
+// ===================== RENDER =====================
+function renderGrid() {
+  const grid = document.getElementById('grid');
+  grid.innerHTML = '';
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      cell.dataset.r = r;
+      cell.dataset.c = c;
+
+      // Apply borders
+      if (puzzle.borders) {
+        puzzle.borders.forEach(b => {
+          if (b.row === r && b.col === c) {
+            cell.classList.add('border-' + b.side);
+          }
+        });
+      }
+
+      // Node
+      const nodeNum = nodeMap[key(r, c)];
+      if (nodeNum !== undefined) {
+        const circle = document.createElement('div');
+        circle.className = 'node-circle';
+        circle.textContent = nodeNum;
+        cell.appendChild(circle);
+        if (nodeNum === currentTarget) cell.classList.add('current-target');
+      }
+
+      grid.appendChild(cell);
+    }
+  }
+  redrawPath();
+}
+
+function redrawPath() {
+  // Reset all cells visual state first
+  document.querySelectorAll('#grid .cell').forEach(cell => {
+    cell.classList.remove('filled', 'filled-node', 'current-target');
+    cell.querySelectorAll('.path-line').forEach(el => el.remove());
+  });
+
+  // Mark current target node
+  const tNode = puzzle.nodes.find(n => n.num === currentTarget);
+  if (tNode) {
+    const tc = getCell(tNode.row, tNode.col);
+    if (tc) tc.classList.add('current-target');
+  }
+
+  // Draw path
+  path.forEach((pos, i) => {
+    const cell = getCell(pos.row, pos.col);
+    if (!cell) return;
+    const isNodeCell = nodeMap[key(pos.row, pos.col)] !== undefined;
+    cell.classList.add(isNodeCell ? 'filled-node' : 'filled');
+
+    const prev = path[i - 1];
+    const next = path[i + 1];
+
+    // Determine which halves to draw
+    const lines = [];
+    if (prev) {
+      const dr = prev.row - pos.row, dc = prev.col - pos.col;
+      if (dc === 1) lines.push('half-r');
+      else if (dc === -1) lines.push('half-l');
+      else if (dr === 1) lines.push('half-d');
+      else if (dr === -1) lines.push('half-u');
+    }
+    if (next) {
+      const dr = next.row - pos.row, dc = next.col - pos.col;
+      if (dc === 1) lines.push('half-r');
+      else if (dc === -1) lines.push('half-l');
+      else if (dr === 1) lines.push('half-d');
+      else if (dr === -1) lines.push('half-u');
+    }
+    // Combine half lines intelligently
+    const hasR = lines.includes('half-r');
+    const hasL = lines.includes('half-l');
+    const hasD = lines.includes('half-d');
+    const hasU = lines.includes('half-u');
+
+    if (hasR && hasL) {
+      addLine(cell, 'h');
+    } else if (hasU && hasD) {
+      addLine(cell, 'v');
+    } else {
+      if (hasR) addLine(cell, 'half-r');
+      if (hasL) addLine(cell, 'half-l');
+      if (hasD) addLine(cell, 'half-d');
+      if (hasU) addLine(cell, 'half-u');
+    }
+  });
+}
+
+function addLine(cell, cls) {
+  const line = document.createElement('div');
+  line.className = 'path-line ' + cls;
+  cell.appendChild(line);
+}
+
+// ===================== INTERACTION =====================
+function getCellFromPoint(x, y) {
+  const el = document.elementFromPoint(x, y);
+  if (!el) return null;
+  const cell = el.closest('.cell');
+  if (!cell) return null;
+  return { row: parseInt(cell.dataset.r), col: parseInt(cell.dataset.c) };
+}
+
+function tryMove(r, c) {
+  const k = key(r, c);
+
+  // If path is empty, must start from currentTarget node
+  if (path.length === 0) {
+    const tNode = puzzle.nodes.find(n => n.num === currentTarget);
+    if (!tNode || tNode.row !== r || tNode.col !== c) return;
+    path.push({ row: r, col: c });
+    filledCells.add(k);
+    redrawPath();
+    return;
+  }
+
+  const last = path[path.length - 1];
+
+  // Check adjacency
+  if (!isAdjacent(last, { row: r, col: c })) return;
+
+  // Backtrack: if moving to second-to-last cell in path, pop the last
+  if (path.length >= 2) {
+    const prev = path[path.length - 2];
+    if (prev.row === r && prev.col === c) {
+      const removed = path.pop();
+      filledCells.delete(key(removed.row, removed.col));
+      redrawPath();
+      return;
+    }
+  }
+
+  // Can't revisit (unless backtracking handled above)
+  if (filledCells.has(k)) return;
+
+  // Check if this cell is a node
+  const nodeNum = nodeMap[k];
+  if (nodeNum !== undefined) {
+    // Only can enter the next target node or the current target (start)
+    if (nodeNum !== currentTarget + 1) return;
+    // Advance target
+    path.push({ row: r, col: c });
+    filledCells.add(k);
+    currentTarget++;
+    redrawPath();
+    checkClear();
+    return;
+  }
+
+  path.push({ row: r, col: c });
+  filledCells.add(k);
+  redrawPath();
+}
+
+function checkClear() {
+  const maxNode = puzzle.nodes.length;
+  if (currentTarget > maxNode && filledCells.size === 64) {
+    document.getElementById('clear-overlay').classList.add('show');
+  }
+}
+
+function undo() {
+  if (path.length === 0) return;
+  const last = path[path.length - 1];
+  const k = key(last.row, last.col);
+
+  // If last cell is a node (other than the start node), decrement target
+  const nodeNum = nodeMap[k];
+  if (nodeNum !== undefined && nodeNum < currentTarget) {
+    currentTarget--;
+  }
+
+  path.pop();
+  filledCells.delete(k);
+  redrawPath();
+}
+
+// ===================== EVENT LISTENERS =====================
+document.getElementById('btn-play').addEventListener('click', () => {
+  startPuzzle(randomPuzzle());
+});
+
+document.getElementById('btn-back').addEventListener('click', () => {
+  showScreen('screen-title');
+});
+
+document.getElementById('btn-undo').addEventListener('click', undo);
+document.getElementById('btn-hint').addEventListener('click', () => {});
+
+document.getElementById('btn-next').addEventListener('click', () => {
+  startPuzzle(randomPuzzle());
+});
+
+// Mouse events
+const gridEl = document.getElementById('grid');
+
+gridEl.addEventListener('mousedown', e => {
+  const pos = getCellFromPoint(e.clientX, e.clientY);
+  if (!pos) return;
+  isDragging = true;
+  tryMove(pos.row, pos.col);
+});
+
+gridEl.addEventListener('mousemove', e => {
+  if (!isDragging) return;
+  const pos = getCellFromPoint(e.clientX, e.clientY);
+  if (!pos) return;
+  tryMove(pos.row, pos.col);
+});
+
+document.addEventListener('mouseup', () => { isDragging = false; });
+
+// Touch events
+gridEl.addEventListener('touchstart', e => {
+  e.preventDefault();
+  const t = e.touches[0];
+  const pos = getCellFromPoint(t.clientX, t.clientY);
+  if (!pos) return;
+  isDragging = true;
+  tryMove(pos.row, pos.col);
+}, { passive: false });
+
+gridEl.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (!isDragging) return;
+  const t = e.touches[0];
+  const pos = getCellFromPoint(t.clientX, t.clientY);
+  if (!pos) return;
+  tryMove(pos.row, pos.col);
+}, { passive: false });
+
+gridEl.addEventListener('touchend', () => { isDragging = false; });
+</script>
+</body>
+</html>
