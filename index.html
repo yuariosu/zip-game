@@ -585,7 +585,12 @@ function tryMove(r, c) {
     const prev = path[path.length - 2];
     if (prev.row === r && prev.col === c) {
       const removed = path.pop();
-      filledCells.delete(key(removed.row, removed.col));
+      const removedKey = key(removed.row, removed.col);
+      filledCells.delete(removedKey);
+      const removedNodeNum = nodeMap[removedKey];
+      if (removedNodeNum !== undefined && removedNodeNum === currentTarget && removedNodeNum > 1) {
+        currentTarget--;
+      }
       redrawPath();
       return;
     }
@@ -611,11 +616,12 @@ function tryMove(r, c) {
   path.push({ row: r, col: c });
   filledCells.add(k);
   redrawPath();
+  checkClear();
 }
 
 function checkClear() {
   const maxNode = puzzle.nodes.length;
-  if (currentTarget > maxNode && filledCells.size === 64) {
+  if (currentTarget >= maxNode && filledCells.size === 64) {
     document.getElementById('clear-overlay').classList.add('show');
   }
 }
@@ -625,9 +631,9 @@ function undo() {
   const last = path[path.length - 1];
   const k = key(last.row, last.col);
 
-  // If last cell is a node (other than the start node), decrement target
+  // If last cell is a non-starting node, decrement target
   const nodeNum = nodeMap[k];
-  if (nodeNum !== undefined && nodeNum < currentTarget) {
+  if (nodeNum !== undefined && nodeNum === currentTarget && nodeNum > 1) {
     currentTarget--;
   }
 
@@ -691,6 +697,7 @@ gridEl.addEventListener('touchmove', e => {
 }, { passive: false });
 
 gridEl.addEventListener('touchend', () => { isDragging = false; });
+gridEl.addEventListener('touchcancel', () => { isDragging = false; });
 </script>
 </body>
 </html>
