@@ -140,6 +140,14 @@
     z-index: 3;
   }
 
+  #progress-counter {
+    font-size: 13px; color: #9ca3af; margin: 4px 0; letter-spacing: 0.5px;
+    min-height: 18px; text-align: center; transition: color 0.2s;
+  }
+  #progress-counter.hint-fail { color: #ef4444; }
+
+  .btn-action:disabled { opacity: 0.6; cursor: default; }
+
   @media (max-width: 520px) {
     #grid {
       grid-template-columns: repeat(8, calc((100vw - 48px) / 8));
@@ -177,6 +185,7 @@
       </div>
     </div>
   </div>
+  <div id="progress-counter">0 / 64</div>
   <div class="game-footer">
     <button class="btn-action" id="btn-undo">🔄 リセット</button>
     <button class="btn-action" id="btn-hint">💡 ヒント</button>
@@ -192,14 +201,10 @@ const VW = (r1,r2,c)   => { const a=[]; for(let r=r1;r<=r2;r++) a.push(R(r,c)); 
 
 // ===================== PUZZLE DATA =====================
 const PUZZLES = [
-  // 1: corners — horizontal bands
+  // 1: corners — snake (no walls, tutorial)
   { id:1, grid:8,
     nodes:[{num:1,row:0,col:0},{num:2,row:0,col:7},{num:3,row:7,col:7},{num:4,row:7,col:0}],
-    borders:[
-      ...HW(1,1,5), ...HW(6,2,6),
-      ...VW(2,5,2), ...VW(2,5,5),
-      ...HW(3,3,5), ...HW(4,2,4),
-    ]
+    borders:[]
   },
   // 2: inner corners — vertical pillars with gap
   { id:2, grid:8,
@@ -444,6 +449,10 @@ function showScreen(id) {
 
 // ===================== PUZZLE INIT =====================
 function startPuzzle(p) {
+  if (hintTimer) { clearTimeout(hintTimer); hintTimer = null; }
+  document.querySelectorAll('#grid .cell.hint-show').forEach(c => c.classList.remove('hint-show'));
+  const hintBtn = document.getElementById('btn-hint');
+  if (hintBtn) { hintBtn.disabled = false; hintBtn.textContent = '💡 ヒント'; }
   puzzle = p;
   currentTarget = 1;
   path = [];
@@ -606,6 +615,15 @@ function redrawPath() {
       if (hasU) addLine(cell, 'half-u');
     }
   });
+  updateProgress();
+}
+
+function updateProgress() {
+  const el = document.getElementById('progress-counter');
+  if (!el) return;
+  el.textContent = filledCells.size + ' / 64';
+  el.classList.remove('hint-fail');
+  el.style.color = '';
 }
 
 function addLine(cell, cls) {
@@ -697,36 +715,42 @@ function resetPuzzle() {
 let hintTimer = null;
 
 function computeHint() {
-  // path empty → hint is the starting node
   if (path.length === 0) {
     const n1 = puzzle.nodes.find(n => n.num === 1);
     return n1 ? { row: n1.row, col: n1.col } : null;
   }
 
-  const deadline  = Date.now() + 900; // 900ms budget
-  const last      = path[path.length - 1];
-  const visited   = new Set(filledCells);
+  const deadline   = Date.now() + 1500;
+  const last       = path[path.length - 1];
+  const visited    = new Set(filledCells);
   const totalNodes = puzzle.nodes.length;
-  const DIRS = [[0,1],[0,-1],[1,0],[-1,0]];
+  const BASE_DIRS  = [[0,1],[0,-1],[1,0],[-1,0]];
 
-  // DFS looking for a complete solution; returns firstStep or null
   function dfs(r, c, curTarget, firstStep) {
     if (Date.now() > deadline) return null;
-
     if (visited.size === 64 && curTarget >= totalNodes) return firstStep;
 
-    for (const [dr, dc] of DIRS) {
+    // Sort moves toward the next target node (Manhattan heuristic)
+    const nextN = curTarget < totalNodes
+      ? puzzle.nodes.find(n => n.num === curTarget + 1) : null;
+    const dirs = nextN
+      ? BASE_DIRS.slice().sort((a, b) => {
+          const dA = Math.abs(r + a[0] - nextN.row) + Math.abs(c + a[1] - nextN.col);
+          const dB = Math.abs(r + b[0] - nextN.row) + Math.abs(c + b[1] - nextN.col);
+          return dA - dB;
+        })
+      : BASE_DIRS;
+
+    for (const [dr, dc] of dirs) {
       const nr = r + dr, nc = c + dc;
       if (nr < 0 || nr >= 8 || nc < 0 || nc >= 8) continue;
       if (isWallBetween(r, c, nr, nc)) continue;
       const nk = key(nr, nc);
       if (visited.has(nk)) continue;
-
       const nodeNum = nodeMap[nk];
       if (nodeNum !== undefined && nodeNum !== curTarget + 1) continue;
-
       const newTarget = nodeNum !== undefined ? curTarget + 1 : curTarget;
-      const step      = firstStep || { row: nr, col: nc };
+      const step = firstStep || { row: nr, col: nc };
       visited.add(nk);
       const result = dfs(nr, nc, newTarget, step);
       visited.delete(nk);
@@ -738,17 +762,25 @@ function computeHint() {
   const hint = dfs(last.row, last.col, currentTarget, null);
   if (hint) return hint;
 
-  // Fallback: BFS to next target node (shortest reachable path)
+  // BFS fallback: find shortest path to next target node
   const nextNode = puzzle.nodes.find(n => n.num === currentTarget + 1);
-  if (!nextNode) return null;
+  if (!nextNode) {
+    // Past last node — suggest any unvisited adjacent cell
+    for (const [dr, dc] of BASE_DIRS) {
+      const nr = last.row + dr, nc = last.col + dc;
+      if (nr < 0 || nr >= 8 || nc < 0 || nc >= 8) continue;
+      if (isWallBetween(last.row, last.col, nr, nc)) continue;
+      if (!visited.has(key(nr, nc))) return { row: nr, col: nc };
+    }
+    return null;
+  }
   const queue = [[last.row, last.col]];
   const parent = new Map();
   const startK = key(last.row, last.col);
   parent.set(startK, null);
-
   while (queue.length) {
     const [r, c] = queue.shift();
-    for (const [dr, dc] of DIRS) {
+    for (const [dr, dc] of BASE_DIRS) {
       const nr = r + dr, nc = c + dc;
       if (nr < 0 || nr >= 8 || nc < 0 || nc >= 8) continue;
       if (isWallBetween(r, c, nr, nc)) continue;
@@ -758,7 +790,6 @@ function computeHint() {
       if (nodeNum !== undefined && nodeNum !== currentTarget + 1) continue;
       parent.set(nk, key(r, c));
       if (nr === nextNode.row && nc === nextNode.col) {
-        // Trace back to first step
         let cur = nk;
         while (parent.get(cur) !== startK) cur = parent.get(cur);
         const [fr, fc] = cur.split(',').map(Number);
@@ -772,17 +803,31 @@ function computeHint() {
 
 function showHint() {
   if (!puzzle) return;
-  const hint = computeHint();
-  if (!hint) return;
-
-  // Clear previous hint
-  if (hintTimer) clearTimeout(hintTimer);
-  document.querySelectorAll('#grid .cell.hint-show').forEach(c => c.classList.remove('hint-show'));
-
-  const cell = getCell(hint.row, hint.col);
-  if (!cell) return;
-  cell.classList.add('hint-show');
-  hintTimer = setTimeout(() => cell.classList.remove('hint-show'), 2000);
+  const btn = document.getElementById('btn-hint');
+  if (btn.disabled) return;
+  btn.disabled = true;
+  btn.textContent = '💡 計算中...';
+  // Double rAF ensures the browser paints the disabled state before the blocking DFS
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    const hint = computeHint();
+    btn.disabled = false;
+    btn.textContent = '💡 ヒント';
+    if (!hint) {
+      const el = document.getElementById('progress-counter');
+      if (el) {
+        el.textContent = 'ヒントが見つかりません';
+        el.classList.add('hint-fail');
+        setTimeout(() => updateProgress(), 2000);
+      }
+      return;
+    }
+    if (hintTimer) clearTimeout(hintTimer);
+    document.querySelectorAll('#grid .cell.hint-show').forEach(c => c.classList.remove('hint-show'));
+    const cell = getCell(hint.row, hint.col);
+    if (!cell) return;
+    cell.classList.add('hint-show');
+    hintTimer = setTimeout(() => cell.classList.remove('hint-show'), 2000);
+  }));
 }
 
 // ===================== EVENT LISTENERS =====================
