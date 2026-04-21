@@ -128,6 +128,18 @@
   }
   .btn-retry:hover { background: #4b5563; }
 
+  /* Hint highlight */
+  @keyframes hintPulse {
+    0%   { box-shadow: inset 0 0 0 0   #fbbf24, inset 0 0 0 0   #fde68a; }
+    40%  { box-shadow: inset 0 0 0 30px #fbbf24, inset 0 0 0 30px #fde68a; }
+    100% { box-shadow: inset 0 0 0 30px #fbbf24, inset 0 0 0 30px #fde68a; }
+  }
+  .cell.hint-show {
+    animation: hintPulse 0.4s ease forwards;
+    background: #fde68a !important;
+    z-index: 3;
+  }
+
   @media (max-width: 520px) {
     #grid {
       grid-template-columns: repeat(8, calc((100vw - 48px) / 8));
@@ -166,7 +178,7 @@
     </div>
   </div>
   <div class="game-footer">
-    <button class="btn-action" id="btn-undo">↩ 取り消す</button>
+    <button class="btn-action" id="btn-undo">🔄 リセット</button>
     <button class="btn-action" id="btn-hint">💡 ヒント</button>
   </div>
 </div>
@@ -549,7 +561,7 @@ function renderWalls() {
 
 function redrawPath() {
   document.querySelectorAll('#grid .cell').forEach(cell => {
-    cell.classList.remove('filled', 'filled-node', 'current-target');
+    cell.classList.remove('filled', 'filled-node', 'current-target', 'hint-show');
     cell.querySelectorAll('.path-line').forEach(el => el.remove());
   });
 
@@ -673,17 +685,104 @@ function checkClear() {
   }
 }
 
-function undo() {
-  if (path.length === 0) return;
-  const last = path[path.length - 1];
-  const k = key(last.row, last.col);
-  const nodeNum = nodeMap[k];
-  if (nodeNum !== undefined && nodeNum === currentTarget && nodeNum > 1) {
-    currentTarget--;
-  }
-  path.pop();
-  filledCells.delete(k);
+function resetPuzzle() {
+  currentTarget = 1;
+  path = [];
+  filledCells = new Set();
+  document.getElementById('clear-overlay').classList.remove('show');
   redrawPath();
+}
+
+// ===================== HINT (DFS SOLVER) =====================
+let hintTimer = null;
+
+function computeHint() {
+  // path empty → hint is the starting node
+  if (path.length === 0) {
+    const n1 = puzzle.nodes.find(n => n.num === 1);
+    return n1 ? { row: n1.row, col: n1.col } : null;
+  }
+
+  const deadline  = Date.now() + 900; // 900ms budget
+  const last      = path[path.length - 1];
+  const visited   = new Set(filledCells);
+  const totalNodes = puzzle.nodes.length;
+  const DIRS = [[0,1],[0,-1],[1,0],[-1,0]];
+
+  // DFS looking for a complete solution; returns firstStep or null
+  function dfs(r, c, curTarget, firstStep) {
+    if (Date.now() > deadline) return null;
+
+    if (visited.size === 64 && curTarget >= totalNodes) return firstStep;
+
+    for (const [dr, dc] of DIRS) {
+      const nr = r + dr, nc = c + dc;
+      if (nr < 0 || nr >= 8 || nc < 0 || nc >= 8) continue;
+      if (isWallBetween(r, c, nr, nc)) continue;
+      const nk = key(nr, nc);
+      if (visited.has(nk)) continue;
+
+      const nodeNum = nodeMap[nk];
+      if (nodeNum !== undefined && nodeNum !== curTarget + 1) continue;
+
+      const newTarget = nodeNum !== undefined ? curTarget + 1 : curTarget;
+      const step      = firstStep || { row: nr, col: nc };
+      visited.add(nk);
+      const result = dfs(nr, nc, newTarget, step);
+      visited.delete(nk);
+      if (result !== null) return result;
+    }
+    return null;
+  }
+
+  const hint = dfs(last.row, last.col, currentTarget, null);
+  if (hint) return hint;
+
+  // Fallback: BFS to next target node (shortest reachable path)
+  const nextNode = puzzle.nodes.find(n => n.num === currentTarget + 1);
+  if (!nextNode) return null;
+  const queue = [[last.row, last.col]];
+  const parent = new Map();
+  const startK = key(last.row, last.col);
+  parent.set(startK, null);
+
+  while (queue.length) {
+    const [r, c] = queue.shift();
+    for (const [dr, dc] of DIRS) {
+      const nr = r + dr, nc = c + dc;
+      if (nr < 0 || nr >= 8 || nc < 0 || nc >= 8) continue;
+      if (isWallBetween(r, c, nr, nc)) continue;
+      const nk = key(nr, nc);
+      if (visited.has(nk) || parent.has(nk)) continue;
+      const nodeNum = nodeMap[nk];
+      if (nodeNum !== undefined && nodeNum !== currentTarget + 1) continue;
+      parent.set(nk, key(r, c));
+      if (nr === nextNode.row && nc === nextNode.col) {
+        // Trace back to first step
+        let cur = nk;
+        while (parent.get(cur) !== startK) cur = parent.get(cur);
+        const [fr, fc] = cur.split(',').map(Number);
+        return { row: fr, col: fc };
+      }
+      queue.push([nr, nc]);
+    }
+  }
+  return null;
+}
+
+function showHint() {
+  if (!puzzle) return;
+  const hint = computeHint();
+  if (!hint) return;
+
+  // Clear previous hint
+  if (hintTimer) clearTimeout(hintTimer);
+  document.querySelectorAll('#grid .cell.hint-show').forEach(c => c.classList.remove('hint-show'));
+
+  const cell = getCell(hint.row, hint.col);
+  if (!cell) return;
+  cell.classList.add('hint-show');
+  hintTimer = setTimeout(() => cell.classList.remove('hint-show'), 2000);
 }
 
 // ===================== EVENT LISTENERS =====================
@@ -693,8 +792,8 @@ document.getElementById('btn-play').addEventListener('click', () => {
 document.getElementById('btn-back').addEventListener('click', () => {
   showScreen('screen-title');
 });
-document.getElementById('btn-undo').addEventListener('click', undo);
-document.getElementById('btn-hint').addEventListener('click', () => {});
+document.getElementById('btn-undo').addEventListener('click', resetPuzzle);
+document.getElementById('btn-hint').addEventListener('click', showHint);
 
 document.getElementById('btn-retry').addEventListener('click', () => {
   startPuzzle(puzzle);
